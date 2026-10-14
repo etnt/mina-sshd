@@ -41,3 +41,5 @@ release.properties
 
 # OSX files
 .DS_Store
+
+.pi/
