@@ -1,0 +1,17 @@
+# Test server configuration. Only pure PQC algorithms for key exchange.
+Port 22
+HostKey /etc/ssh/ssh_host_mldsa44_key
+HostKey /etc/ssh/ssh_host_mldsa65_key
+HostKey /etc/ssh/ssh_host_mldsa87_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+KexAlgorithms mlkem768-sha256,mlkem1024-sha384,mlkem512-sha256
+HostKeyAlgorithms ssh-mldsa-44,ssh-mldsa-65,ssh-mldsa-87,ssh-ed25519
+PubkeyAcceptedAlgorithms ssh-mldsa-44,ssh-mldsa-65,ssh-mldsa-87,ssh-ed25519
+
+PasswordAuthentication yes
+PubkeyAuthentication yes
+PermitRootLogin no
+UsePAM no
+LogLevel DEBUG1
+AuthorizedKeysFile .ssh/authorized_keys
