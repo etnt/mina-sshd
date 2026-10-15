@@ -1,0 +1,42 @@
+#!/bin/sh
+# Smoke test for the OQS-OpenSSH test image.
+# Usage: smoke-test.sh <image> [docker|podman]
+# Checks that pure ML-KEM and pure ML-DSA work in a real connection.
+set -eu
+IMAGE=${1:?usage: smoke-test.sh <image> [docker|podman]}
+CT=${2:-docker}
+NAME=oqs-smoke-$$
+trap '$CT rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
+
+$CT run -d --name "$NAME" "$IMAGE" >/dev/null
+# Wait for sshd (host key generation happens at start).
+i=0
+until $CT logs "$NAME" 2>&1 | grep -q "Server listening"; do
+    i=$((i + 1)); [ $i -gt 60 ] && { echo "sshd did not start"; $CT logs "$NAME"; exit 1; }
+    sleep 1
+done
+
+ctr() { $CT exec "$NAME" sh -c "$1"; }
+
+echo "== architecture: $(ctr 'uname -m')"
+ctr 'ssh -Q kex' | grep -qx mlkem768-sha256 && echo "OK kex mlkem768-sha256"
+ctr 'ssh -Q kex' | grep -qx mlkem1024-sha384 && echo "OK kex mlkem1024-sha384"
+for k in ssh-mldsa-44 ssh-mldsa-65 ssh-mldsa-87; do
+    ctr 'ssh -Q key' | grep -qx "$k" && echo "OK key $k"
+done
+
+ctr 'su test -c "ssh-keygen -q -t ssh-mldsa-44 -N \"\" -f ~/.ssh/id \
+   && cp ~/.ssh/id.pub ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"'
+
+for kex in mlkem768-sha256 mlkem1024-sha384; do
+  for hk in ssh-mldsa-44 ssh-mldsa-65 ssh-mldsa-87; do
+    out=$(ctr "su test -c 'ssh -v -o StrictHostKeyChecking=no -o KexAlgorithms=$kex \
+        -o HostKeyAlgorithms=$hk -o PubkeyAcceptedAlgorithms=ssh-mldsa-44 -i ~/.ssh/id \
+        localhost echo CONNECTED_OK' 2>&1")
+    echo "$out" | grep -q "kex: algorithm: $kex" || { echo "FAIL kex $kex"; echo "$out"; exit 1; }
+    echo "$out" | grep -q "Server host key: $hk" || { echo "FAIL host key $hk"; echo "$out"; exit 1; }
+    echo "$out" | grep -q CONNECTED_OK || { echo "FAIL connect $kex/$hk"; echo "$out"; exit 1; }
+    echo "OK session kex=$kex hostkey=$hk user-key=ssh-mldsa-44"
+  done
+done
+echo "ALL OK"

@@ -52,7 +52,7 @@ Wire format (to verify against the current draft text):
 
 - Names: `mlkem768-sha256`, `mlkem1024-sha384`. Names may change before adoption.
 - Client sends `C_INIT` with the ML-KEM public key. Server replies with the ciphertext and the host key signature.
-- Exchange hash is computed with the named hash. K is the KEM shared secret encoded as a **string** (not mpint). The hybrid drafts use the same string encoding.
+- Exchange hash is computed with the named hash. K_PQ is encoded as an **mpint** (draft-harrison-sshm-mlkem, section 3.1; verified).
 
 Implementation steps:
 

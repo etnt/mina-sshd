@@ -1,0 +1,66 @@
+# Small, multi-arch (linux/amd64, linux/arm64) OpenSSH server with PURE ML-KEM
+# key exchange (mlkem768-sha256, ...) and pure ML-DSA host/user keys
+# (ssh-mldsa-44/65/87), for MINA SSHD interoperability tests (GH-928).
+#
+# Based on the Open Quantum Safe OpenSSH fork (branch OQS-v10, OpenSSH 10.2).
+# Everything is compiled in the BUILD stage. The final image only has the
+# runtime files, so tests pull a small prebuilt image and need no compiler.
+#
+# Build:   docker buildx build --platform linux/amd64,linux/arm64 -t <name> .
+# Run:     docker run --rm -p 2222:22 <name>
+
+ARG ALPINE_VERSION=3.22
+
+FROM alpine:${ALPINE_VERSION} AS build
+# Pinned versions. Change them together and re-run the interop tests.
+ARG LIBOQS_REF=0.16.0
+ARG OQS_OPENSSH_REF=10d74f8b27da43705cfab85923ac7e1d769416f1
+RUN apk add --no-cache build-base cmake ninja git autoconf automake \
+        openssl-dev zlib-dev linux-headers
+WORKDIR /src
+
+# liboqs. Do NOT use OQS_MINIMAL_BUILD: ssh-oqs.c references many signature
+# algorithms (mayo, ...), so the fork does not compile against a trimmed liboqs.
+RUN git clone --depth 1 --branch "${LIBOQS_REF}" https://github.com/open-quantum-safe/liboqs.git \
+ && cmake -S liboqs -B liboqs/build -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_INSTALL_PREFIX=/opt/oqs \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DOQS_DIST_BUILD=ON \
+        -DOQS_USE_OPENSSL=ON \
+ && cmake --build liboqs/build \
+ && cmake --install liboqs/build
+
+# OQS-OpenSSH, installed under /opt/ssh.
+# The fork calls sshkey_clear_pkey() without a visible prototype (an upstream
+# header quirk). Its own CI hides this with -Wno-implicit-function-declaration;
+# GCC 14 (Alpine 3.22) needs the "-Wno-error=" form.
+RUN git clone https://github.com/open-quantum-safe/openssh.git openssh \
+ && git -C openssh checkout "${OQS_OPENSSH_REF}" \
+ && cd openssh \
+ && autoreconf -i \
+ && ./configure --prefix=/opt/ssh --sysconfdir=/etc/ssh \
+        --with-ssl-dir=/usr --with-liboqs-dir=/opt/oqs \
+        --with-ldflags="-Wl,-rpath,/opt/oqs/lib" --with-libs=-lm \
+        --with-cflags="-Wno-error=implicit-function-declaration" \
+        --without-pam --without-selinux --with-privsep-path=/var/empty \
+ && make -j"$(nproc)" \
+ && make install-nokeys \
+ && strip /opt/ssh/sbin/sshd /opt/ssh/bin/ssh /opt/ssh/bin/ssh-keygen
+
+FROM alpine:${ALPINE_VERSION}
+RUN apk add --no-cache libcrypto3 zlib \
+ && addgroup -S sshd 2>/dev/null; adduser -S -D -H -h /var/empty -s /sbin/nologin -G sshd sshd 2>/dev/null; \
+    adduser -D -s /bin/sh test \
+ && passwd -u test \
+ && mkdir -p /var/empty /etc/ssh /home/test/.ssh \
+ && chown test:test /home/test/.ssh && chmod 700 /home/test/.ssh
+COPY --from=build /opt/oqs /opt/oqs
+COPY --from=build /opt/ssh /opt/ssh
+COPY sshd_config /etc/ssh/sshd_config
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV PATH="/opt/ssh/bin:/opt/ssh/sbin:${PATH}"
+EXPOSE 22
+ENTRYPOINT ["/entrypoint.sh"]
