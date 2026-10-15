@@ -12,6 +12,5 @@ PubkeyAcceptedAlgorithms ssh-mldsa-44,ssh-mldsa-65,ssh-mldsa-87,ssh-ed25519
 PasswordAuthentication yes
 PubkeyAuthentication yes
 PermitRootLogin no
-UsePAM no
 LogLevel DEBUG1
 AuthorizedKeysFile .ssh/authorized_keys

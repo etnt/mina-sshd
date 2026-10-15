@@ -41,6 +41,34 @@ docker run --rm -p 2222:22 <registry>/mina-sshd-oqs-openssh:<tag>
   The file must belong to `test` with mode 600.
 - Host keys are generated at first start. Read the `.pub` files from `/etc/ssh` to build `known_hosts`.
 
+## Quick sanity test
+
+Automatic test (works with a local or a published image):
+
+```
+./smoke-test.sh ghcr.io/<owner>/mina-sshd-oqs-openssh:dev docker   # or: podman
+```
+
+It prints `ALL OK` at the end. It checks the algorithm lists, then opens sessions with both pure
+ML-KEM key exchanges and all three ML-DSA host keys, using an `ssh-mldsa-44` user key.
+
+Manual test:
+
+1. Start the server: `docker run -d --name oqs -p 2222:22 <image>`
+2. Check that it only offers pure ML-KEM. A stock OpenSSH client must be **refused**:
+   `ssh -p 2222 test@localhost true`
+   Expected: `no matching key exchange method found. Their offer: mlkem768-sha256,mlkem1024-sha384,mlkem512-sha256,...`
+3. Connect with the client that is inside the image. It supports the pure algorithms:
+   ```
+   docker exec -u test oqs ssh-keygen -q -t ssh-mldsa-44 -N '' -f /home/test/.ssh/id
+   docker exec -u test oqs sh -c 'cp ~/.ssh/id.pub ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'
+   docker exec -u test oqs ssh -v -o StrictHostKeyChecking=no \
+       -o KexAlgorithms=mlkem768-sha256 -o HostKeyAlgorithms=ssh-mldsa-65 \
+       -o PubkeyAcceptedAlgorithms=ssh-mldsa-44 -i /home/test/.ssh/id localhost echo OK
+   ```
+   Expected in the output: `kex: algorithm: mlkem768-sha256`, `Server host key: ssh-mldsa-65` and `OK`.
+4. Stop it: `docker rm -f oqs`
+
 ## Known problems and open points
 
 1. **Pinned to a fork.** The pins are `LIBOQS_REF` and `OQS_OPENSSH_REF` (build arguments).
