@@ -24,10 +24,73 @@ https://github.com/apache/mina-sshd/issues/928#issuecomment-6180441945
 
 - All work is on branch `gh-928-pqc`, based on `upstream/dev_3.0`.
 - Phase 0 study is done (see `gh-928-pure-mldsa-mlkem.md` §9). The issue reply is deferred.
-- Phase 1 is mostly done: the OQS-OpenSSH test image is in `docker/oqs-openssh/` and builds for
-  amd64 and arm64 with `.github/workflows/oqs-openssh-image.yml`. The maintainer reviewed it
-  (add `DEBUG3`, pin ASF-approved actions: done). Still open: publish under `ghcr.io/apache`
-  (needs ASF Infra) and write the first test in `sshd-test`.
+- Phase 1 is in progress. The OQS-OpenSSH image is in `docker/oqs-openssh/`.
+  The workflow `.github/workflows/oqs-openssh-image.yml` targets native amd64 and arm64 runners.
+  The maintainer reviewed the image (add `DEBUG3`, pin ASF-approved actions: done).
+- Local verification: `docker/oqs-openssh/smoke-test.sh ghcr.io/etnt/mina-sshd-oqs-openssh:dev docker`
+  passed on arm64 (`ALL OK`, six pure ML-KEM/ML-DSA sessions). The runtime image is about 30 MB.
+  `ssh -V` reports `OpenSSH_10.3-2026-05_p1, Open Quantum Safe 2026-05`.
+  The Dockerfile comment and README now agree on the 10.3p1 base.
+- The cached fork image index is
+  `ghcr.io/etnt/mina-sshd-oqs-openssh@sha256:702c734e663283577e08b6f4f18910acb0b6cbf0a6fa36f9dd6a603124896a9b`.
+  Its cached index contains amd64 and arm64 manifests. This does not prove that amd64 passes.
+  The latest fork CI run and registry visibility were not checked in this local-only pass.
+- Both Dockerfile stages now pin Alpine 3.22.6 by its cached multi-arch index digest
+  `sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8`.
+  Verified against the registry: it is an OCI image index with linux/amd64 and linux/arm64, and it is Alpine 3.22.6.
+  The fork image above predates this explicit pin. Rebuild and run both architecture smoke tests before replacing the test image digest.
+- Added `sshd-test/src/test/java/org/apache/sshd/client/kex/OqsOpenSshInteropTest.java`.
+  The first test uses the existing `mlkem768x25519-sha256` hybrid and password authentication as `test`.
+  The binary offers that hybrid, but the default `sshd_config` allows only pure ML-KEM.
+  The test overrides KEX through sshd command-line options without changing the default configuration.
+  A local stock OpenSSH 10.3p1 client negotiated that hybrid with an Ed25519 host key,
+  authenticated with password `test` and received `CONNECTED_OK` from the pinned image.
+  The session produced 12 server log lines with `LogLevel=VERBOSE`.
+  A second test skips until a supported `mlkem768-sha256` factory lands. No pure ML-KEM implementation was added.
+  Both tests require Ed25519 support and skip before image startup if their algorithms are unavailable.
+  Image fetch failures, unknown hosts and explicit registry errors (such as `manifest unknown` or `pull access denied`) also skip the tests.
+  Other launch failures, including startup timeouts and invalid sshd options, fail the tests.
+- The Java test uses the pinned fork index, a two-minute startup timeout and a `Slf4jLogConsumer`.
+  It overrides `DEBUG3` with `VERBOSE` to limit CI output. Image pull time is not measured because the image was cached.
+  Use packaged multi-release JAR (MR-JAR) verification as the primary command, from the repository root:
+
+  ```
+  JAVA_HOME=/opt/homebrew/opt/openjdk ./mvnw -pl sshd-test -am -Pmultirelease -Dit.test=OqsOpenSshInteropTest -Dfailsafe.failIfNoSpecifiedTests=false verify
+  ```
+
+  Set `JAVA_HOME` to your local JDK 25 path. To select this class in Surefire too, add
+  `-Dtest=OqsOpenSshInteropTest -Dsurefire.failIfNoSpecifiedTests=false`.
+  Surefire runs NIO2, MINA and Netty by default. Failsafe uses the packaged JARs and runs NIO2 by default.
+  Its reports are in `sshd-test/target/surefire-reports-mr/`, with the summary in `sshd-test/target/failsafe-reports/failsafe-summary.xml`.
+- Packaged verification passed on arm64 with JDK 25.0.2 and Testcontainers 2.0.4 (`BUILD SUCCESS`, exit code 0).
+  `docker info` succeeded through the local Podman 5.3.2 Docker-compatible server.
+  Failsafe reported two tests: one hybrid pass, one pure ML-KEM skip, zero failures and zero errors.
+  The hybrid negotiated `mlkem768x25519-sha256`, used an Ed25519 host key, authenticated with password `test`, and received `CONNECTED_OK`.
+  The test asserts the negotiated KEX name. Testcontainers startup and the log-wait expression worked without changes.
+  The exact pure-test skip reason was `Assumption failed: Enable after the maintainer's pure ML-KEM factory lands`.
+  MINA has no `mlkem768-sha256` factory yet, so Java pure ML-KEM interoperability remains unverified.
+  Surefire also passed the hybrid in each of NIO2, MINA and Netty, with one pure-test skip per execution.
+  After narrowing image-error matching, the selected-class verification rerun passed with the same results and no flakes.
+  The full run logged unrelated transient failures in `PortForwardingTest.localBindingOnDifferentInterfaces`, `ProxyJumpTest.proxyOverride` and `StrictKexInteroperabilityTest.strictKexOff`.
+  All three passed on retry. Maven Enforcer and Apache RAT passed.
+  The pinned image was cached. No image fetch failed, and no local rebuild or publication was needed.
+  Fresh-pull access and registry visibility remain unchecked.
+- Use the `test` phase only as a compile check, not as proof of interoperability:
+
+  ```
+  JAVA_HOME=/opt/homebrew/opt/openjdk ./mvnw -pl sshd-test -am -Dtest=OqsOpenSshInteropTest -Dsurefire.failIfNoSpecifiedTests=false test
+  ```
+
+  The earlier test-phase run compiled successfully but skipped both tests in all three I/O executions.
+  The MR-JAR `JceKEM` implementation is active only in the packaged JAR.
+  In the `test` phase, the SunJCE registrar claims ML-KEM support, but the baseline `JceKEM` stub throws.
+  As a result, `BuiltinKEM.mlkem768` reports unsupported and the hybrid test skips before container startup.
+  The pure ML-KEM test skips because its factory is absent.
+- Deferred outside local scope: rebuild/publication, ASF Infra approval for `ghcr.io/apache`,
+  maintainer confirmation of the connectivity-test scope and OQS source pin, and the issue #928 findings/Dockerfile post.
+  No images were published and no external parties were contacted.
+- OQS composite signatures cannot test `ssh-mldsa44-ed25519`. The separate OpenSSH 10.5 image remains open.
+  Its release and package availability were not checked in this pass.
 - Existing container tests in `sshd-test` build their image in code (`ImageFromDockerfile`, pinned
   Alpine plus `apk add`). Our image compiles C code, so tests must **pull the prebuilt image by
   digest** instead (`GenericContainer(DockerImageName.parse(...))`).
@@ -59,7 +122,7 @@ This is the main blocker the maintainer named, and it is the most useful contrib
 
 1. Survey candidate third-party implementations for a **pure ML-KEM** server/client: OpenSSH (check the release that ships pure `mlkem768`, if any), libssh, wolfSSH, Dropbear, AsyncSSH, Go `x/crypto/ssh`, Paramiko/others. Prefer reputable projects.
 2. For each: does it support pure ML-KEM and pure/composite ML-DSA? Is there a maintained container image, or can we build one from a pinned release?
-3. Build a container image (Dockerfile in `sshd-test` on `dev_3.0`) for the best candidate. Pin versions. Verify it runs with Testcontainers 2.x.
+3. Build a container image (Dockerfile in `docker/oqs-openssh/` on `dev_3.0`) for the best candidate. Pin versions and the Alpine multi-arch index. Tests in `sshd-test` pull the prebuilt image by digest through `GenericContainer`. Verify it runs with Testcontainers 2.x.
 4. Prove it manually: connect with a stock client and check the negotiated algorithms in verbose output.
 5. Share the findings on the issue. Offer the Dockerfile or a PR.
 6. Also check: OpenSSH 10.5 container for `ssh-mldsa44-ed25519` (needed in Phase 4).

@@ -1,17 +1,34 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # Small, multi-arch (linux/amd64, linux/arm64) OpenSSH server with PURE ML-KEM
 # key exchange (mlkem768-sha256, ...) and pure ML-DSA host/user keys
 # (ssh-mldsa-44/65/87), for MINA SSHD interoperability tests (GH-928).
 #
-# Based on the Open Quantum Safe OpenSSH fork (branch OQS-v10, OpenSSH 10.2).
+# Based on the Open Quantum Safe OpenSSH fork (branch OQS-v10, OpenSSH 10.3p1).
 # Everything is compiled in the BUILD stage. The final image only has the
 # runtime files, so tests pull a small prebuilt image and need no compiler.
 #
 # Build:   docker buildx build --platform linux/amd64,linux/arm64 -t <name> .
 # Run:     docker run --rm -p 2222:22 <name>
 
-ARG ALPINE_VERSION=3.22
-
-FROM alpine:${ALPINE_VERSION} AS build
+# Alpine 3.22.6 multi-arch index (includes linux/amd64 and linux/arm64).
+# The digest wins over the tag; update the digest to change the base image.
+FROM alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS build
 # Pinned versions. Change them together and re-run the interop tests.
 ARG LIBOQS_REF=0.16.0
 ARG OQS_OPENSSH_REF=10d74f8b27da43705cfab85923ac7e1d769416f1
@@ -49,7 +66,7 @@ RUN git clone https://github.com/open-quantum-safe/openssh.git openssh \
  && make install-nokeys \
  && strip /opt/ssh/sbin/sshd /opt/ssh/bin/ssh /opt/ssh/bin/ssh-keygen
 
-FROM alpine:${ALPINE_VERSION}
+FROM alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
 RUN apk add --no-cache libcrypto3 zlib \
  && addgroup -S sshd 2>/dev/null; adduser -S -D -H -h /var/empty -s /sbin/nologin -G sshd sshd 2>/dev/null; \
     adduser -D -s /bin/sh test \
