@@ -81,7 +81,8 @@ Manual test:
 4. **Prebuilt image needed.** Building from this Dockerfile in every CI run takes several minutes.
    Publish it (for example with a GitHub Actions `buildx` workflow) and pin by digest.
 5. **ML-DSA private key format.** The fork's `ssh-keygen` format is not checked against the seed-only rule yet.
-6. Host key algorithms are limited to the ML-DSA names and `ssh-ed25519` in `sshd_config`.
+6. The server logs at `DEBUG3` (the maintainer finds this useful for diagnosing test failures).
+7. Host key algorithms are limited to the ML-DSA names and `ssh-ed25519` in `sshd_config`.
    Adjust it for tests that need other types.
 
 ## CI: build and publish (`.github/workflows/oqs-openssh-image.yml`)
@@ -95,5 +96,8 @@ Manual test:
   Afterwards set the package to *public* in the GitHub package settings so that other machines can pull it.
 - You can run the smoke test locally: `./smoke-test.sh <image> docker|podman`.
 
-Note: the workflow has not been run on GitHub yet. Third-party actions use version tags. The ASF
-requires pinned, allow-listed actions, so this must be adjusted before it goes into `apache/mina-sshd`.
+Actions are pinned by commit hash. The `docker/*` hashes are in the ASF allow-list
+(`apache/infrastructure-actions`, `approved_patterns.yml`); `actions/*` are GitHub's own.
+The image owner is taken from the repository owner (`ghcr.io/<owner>/...`). In `apache/mina-sshd`
+that would be `ghcr.io/apache/...`. Whether the workflow may push there is not known; ASF Infra may
+have to enable it.
