@@ -20,6 +20,19 @@ https://github.com/apache/mina-sshd/issues/928#issuecomment-6180441945
    - 3.0 uses Testcontainers 2.x and has moved container tests to a separate `sshd-test` project, run at the end of the build with all three I/O libraries (NIO2, MINA, Netty).
 7. ML-DSA must be a **series of small PRs**: (a) keys and wire format, (b) OpenSSH file format read/write, (c) signature, (d) SSH certificates. Each with unit tests.
 
+## Status (updated)
+
+- All work is on branch `gh-928-pqc`, based on `upstream/dev_3.0`.
+- Phase 1 is mostly done: the OQS-OpenSSH test image is in `docker/oqs-openssh/` and builds for
+  amd64 and arm64 with `.github/workflows/oqs-openssh-image.yml`. The maintainer reviewed it
+  (add `DEBUG3`, pin ASF-approved actions: done). Still open: publish under `ghcr.io/apache`
+  (needs ASF Infra) and write the first test in `sshd-test`.
+- Existing container tests in `sshd-test` build their image in code (`ImageFromDockerfile`, pinned
+  Alpine plus `apk add`). Our image compiles C code, so tests must **pull the prebuilt image by
+  digest** instead (`GenericContainer(DockerImageName.parse(...))`).
+- Maintainer on private keys: PKCS#8 follows RFC 9881; SSH format stores the seed only. On input we
+  may also accept "seed followed by expanded key" and ignore the expanded part.
+
 ## Guiding rules
 
 - Experimental and opt-in. Not in defaults.

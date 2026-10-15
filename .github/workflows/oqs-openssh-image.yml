@@ -29,11 +29,11 @@ on:
         default: 'dev'
   push:
     paths:
-      - 'docs/research/docker/oqs-openssh/**'
+      - 'docker/oqs-openssh/**'
       - '.github/workflows/oqs-openssh-image.yml'
 
 env:
-  CONTEXT: docs/research/docker/oqs-openssh
+  CONTEXT: docker/oqs-openssh
   TAG: ${{ inputs.tag || 'dev' }}
 
 permissions:
