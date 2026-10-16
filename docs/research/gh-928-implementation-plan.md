@@ -135,11 +135,39 @@ Exit: at least one working, pinned container for pure ML-KEM, and one for the co
 
 Scope: key types and buffer encoding only. No files, no signatures.
 
-- [ ] 1. Provider layer: `SecurityUtils`/registrar support check for ML-DSA, using JCE (`KeyFactory`, `KeyPairGenerator`) with the MR-JAR approach from 3.0.
-- [ ] 2. Key type constants and a parameter table (`ML-DSA-44/65/87`: name, public key size, seed size 32 bytes).
-- [ ] 3. Public key: `PublicKeyEntryDecoder`, and `BufferPublicKeyParser` (read and write `string name; string key`). Register in `KeyUtils`.
-- [ ] 4. Private key object model: seed-only. Derive the expanded key through the provider.
-- [ ] 5. Unit tests: encode/decode round trip, size checks, bad input rejected, known-answer values from FIPS 204/ACVP, with BC and with the JDK provider where available.
+- [x] 1. Provider layer: `SecurityUtils`/registrar support check for ML-DSA, using JCE (`KeyFactory`, `KeyPairGenerator`) with the MR-JAR approach from 3.0.
+- [x] 2. Key type constants and the `MLDSAParameterSets` parameter table (`ML-DSA-44/65/87`: name, public key size, seed size 32 bytes).
+- [x] 3. Public key: `PublicKeyEntryDecoder`, and `BufferPublicKeyParser` (read and write `string name; string key`). Register in `KeyUtils`.
+- [x] 4. Private key object model: seed-only. Derive the expanded key through the provider.
+- [x] 5. Unit tests: encode/decode round trip, size checks, bad input rejected, known-answer values from FIPS 204/ACVP, with BC and with the JDK provider where available.
+
+Verification notes:
+- No new MR-JAR class is needed: parameter-specific JCA names and encoded key specs use Java 8 APIs.
+  The new `SunSecurityProviderRegistrar` (property name `SunWrapper`) covers `SUN`, where JDK ML-DSA lives. SunJCE is unchanged.
+  No default SSH signature algorithm, `BuiltinSignatures` entry, certificate or key-file loader was changed.
+- Names and sizes checked against Fluhrer revision 08 and FIPS 204 table 2.
+  Tests embed one NIST ACVP key-generation seed/public-key vector for each variant.
+- Built with `JAVA_HOME=/opt/homebrew/opt/openjdk ./mvnw` (JDK 25), including baseline `--release 8` compilation.
+  The selected suite `MLDSA*,BufferPublicKeyParserTest,KeyUtilsTest,PublicKeyEntryTest,Ed25519*,EDDSA*`
+  passed through the standard build's `default-test` and `bc` Surefire executions:
+  93 tests per execution, zero failures/errors, three expected provider-limit skips.
+  The standard `bc` execution sets `org.apache.sshd.security.provider.SunWrapper.enabled=false` and `mldsa.test.provider=BC`.
+  All three `acvpSeedKeyPair` cases pass without skips in that execution. Only the SUN seed-import limitation cases skip.
+  The registrar scope tests pass in both executions, including parameter-specific support checks against the installed `SUN` provider.
+- With `org.apache.sshd.security.provider.BC.enabled=false`, the keys-only subset (without Ed25519/EDDSA)
+  passed on SUN: 58 tests per execution, zero failures/errors, three seed-derivation skips.
+  SUN JDK 25 seed-only rejection is tested explicitly. BC seed import, seed recovery and ACVP public-key derivation pass.
+- The full selected suite also passed on the available JDK 17 runtime using JDK 25 Maven plus
+  `-Djvm=/opt/homebrew/opt/openjdk@17/bin/java`. Building Maven itself on JDK 17 is blocked by the existing
+  JDK 24 minimum build rule. JDK 8 runtime is unavailable; Java 8 runtime testing remains unverified.
+- Apache RAT passed with zero unapproved files. `git diff --check` passed.
+  Registrar and `BuiltinSignaturesTest` regression tests passed (21 tests per execution).
+- Extra isolated runs showed `SecurityUtilsTest` encrypted PEM loading failing
+  (`PBKDF-OpenSSL SecretKeyFactory not available`). This is an existing test-isolation problem:
+  it fails identically on a clean checkout of the committed `HEAD` (before the Phase 2 changes) and passes in the full
+  `sshd-common` suite. A BC-disabled Ed25519 public-key recovery failure seen in an ad-hoc run could not be reproduced.
+  The full `sshd-common` suite (default, `bc` and `jce` executions) passes with zero failures on both the clean checkout
+  and the Phase 2 tree. No file-loader or Ed25519 changes were made.
 
 Exit: public keys round-trip through `Buffer`; tests pass on both providers.
 
